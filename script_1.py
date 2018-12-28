@@ -29,27 +29,33 @@ def install_postfix():
     os.system("sudo DEBIAN_PRIORITY=low apt install postfix")
 
 def configure_mailbox():
-    input("Press enter when finished with initial configurations.")
-    mailbox = "";
-    done = False;
-    while (!done):
-        mailbox = input("Enter valid mailbox directory name: ")
-        try:
-            os.mkdir(mailbox)
-        except OSError:
-            print("Invalid directory name...")
+    mailbox = "Maildir"
+    print("""\
+Default location for the mailbox directory is 'Maildir'
+Is this location acceptable? (y/n): """)
+    cont= input()
+    while True:
+        while cont.lower() not in ("y", "n"):
+            cont = input("(y/n): ")
+        if cont == 'n':
+            virtual = input("Input custom path: ")
+            final = input("Is " + mailbox + " okay? (y/n)")
+            if final == 'y':
+                break
         else:
-            os.rmdir(mailbox)
-            done = True
-            print("Configuring home_mailbox...")
-            os.system("sudo postconf -e 'home_mailbox= " + mailbox + "/")
+            break
+
+    print("Configuring home_mailbox...")
+    cmd = "sudo postconf -e 'home_mailbox= " + mailbox + "/'"
+    os.system(cmd)
     return mailbox
 
 def configure_alias_maps():
     virtual = "/etc/postfix/virtual"
-    cont= input("""\
+    print("""\
 Default location for virtual_alias_maps is '/etc/postfix/virtual'
-Is this location acceptable? (y/n): """)
+Is this location acceptable? (y/n):""")
+    cont= input()
     while True:
         while cont.lower() not in ("y", "n"):
             cont = input("(y/n): ")
@@ -60,28 +66,49 @@ Is this location acceptable? (y/n): """)
                 break
         else:
             break
-    os.system("sudo postconf -e 'virtual_alias_maps= hash:" + virtual)
+    cmd = "sudo postconf -e 'virtual_alias_maps= hash:" + virtual + "'"
+    os.system(cmd)
     return virtual
 
 def map_mail_addresses(virtualPath):
-    input("Press enter to open virtual maps text file.")
-    os.system("%s %s" % (os.getenv("EDITOR"), virtualPath))
-    print("When you are finished, save and close the file.")
+    input("Press enter to edit virtual maps text file.\nWhen you are finished, save and close the file.")
+    cmd = "sudo nano " + virtualPath
+    os.system(cmd)
+    #os.system("%s %s" % (os.getenv("EDITOR"), virtualPath))
     input("Press enter to apply virtual maps.")
     os.system("sudo postmap /etc/postfix/virtual")
     print("Restarting postfix to ensure changes have been applied.")
     os.system("sudo systemctl restart postfix")
 
 def configure_firewall():
-    input("Press enter to configure firewall.")
+    print("Configuring firewall...")
     os.system("sudo ufw allow Postfix")
 
 def configure_mail_environment(mailbox):
-    input("Press enter to configure MAIL environment variable.")
-    os.system("echo 'export MAIL=~/" + mailbox + "' | sudo tee -a /etc/bash.bashrc | sudo tee -a /etc/profile.d/mail.sh")
+    print("Configuring MAIL environment variable...")
+    cmd="echo 'export MAIL=~/" + mailbox + "' | sudo tee -a /etc/bash.bashrc | sudo tee -a /etc/profile.d/mail.sh"
+    os.system(cmd)
 
 def install_mail_client(mailbox):
-    pass
+    cont = input("Would you like to install the s-nail package as a mail client? (y/n): ")
+    while True:
+        while cont.lower() not in ("y", "n"):
+            cont = input("(y/n): ")
+        if cont == 'y':
+            os.system("sudo apt install s-nail")
+            with open("/etc/s-nail.rc", 'a') as file:
+                file.write("set emptystart")
+                file.write("set folider=" + mailbox)
+                file.write("set record=+sent")
+            break
+        else:
+            break
+
+def install_opendmarc():
+    os.system("sudo apt install opendmarc")
+
+def install_opendkim():
+    os.system("sudo apt install opendkim opendkim-tools")
 
 check_OS()
 
@@ -95,3 +122,10 @@ if (not check_installed_package("postfix")):
     map_mail_addresses(virtualPath)
     configure_firewall()
     configure_mail_environment(mailbox)
+    install_mail_client(mailbox)
+
+if (not check_installed_package("opendmarc")):
+    install_opendmarc()
+
+if (not check_installed_package("opendkim")):
+    install_opendkim()
