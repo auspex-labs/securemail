@@ -48,8 +48,10 @@ def get_domain_ip():
 
 def dns_recommendation_spf(domain_name, ip):
     print("Add the following TXT record to your DNS:")
-    print('*.' + domain_name + '. 1800 IN TXT "v=spf1 mx ip4' + ip + ' -all"')
-    print(domain_name + '.com. 1800 IN TXT "v=spf1 mx ip4:' + ip + ' -all"')
+    spf_rec = '*.' + domain_name + '. 1800 IN TXT "v=spf1 mx ip4' + ip + ' -all"\n' + domain_name + '.com. 1800 IN TXT "v=spf1 mx ip4:' + ip + ' -all"'
+    print(spf_rec)
+    input("Enter to continue...")
+    return spf_rec
 
 def generate_dkim_key(domain_name):
     cmd = "opendkim-genkey -b 2048 -d " + domain_name + "-s " + domain_name + ".dkim"
@@ -101,12 +103,17 @@ def dns_recommendation_dkim(domain_name):
     with open("default.txt", 'r') as file:
         dns_entry = file.read()
     entry = dns_entry[dns_entry.find("(")+2 : dns_entry.find(" )")]
-    print("mail._domainkey." + domain_name + " 1800 IN TXT" + entry)
+    dkim_rec = "mail._domainkey." + domain_name + " 1800 IN TXT" + entry
+    print(dkim_rec)
+    input("Enter to continue...")
+    return dkim_rec
 
 def dns_recommendation_dmarc(domain_name):
     print("Add the following TXT record to your DNS: ")
-    print("_dmarc." + domain_name + ' 1800 IN TXT "v=DMARC1; p=reject; rua=mailto:postmaster@' +  domain_name + '"')
-    print("Replace 'postmaster' with the email address which should collect aggregate reports.")
+    dmarc_rec = "_dmarc." + domain_name + ' 1800 IN TXT "v=DMARC1; p=reject; rua=mailto:postmaster@' + domain_name + '"' + "\nReplace 'postmaster' with the email address which should collect aggregate reports."
+    print(dmarc_rec)
+    input("Enter to continue...")
+    return dmarc_rec
 
 def configure_dmarc(domain_name):
     failureAddress = input("Enter the email address responsible for failure reports (e.g. postmaster@domain.com): ")
@@ -145,8 +152,33 @@ def integrate_dmarc_dkim():
         file.write("""\
 smtpd_milters = unix:private/opendkim unix:private/opendmarc
 non_smtpd_milters = unix:private/opendkim unix:private/opendmarc""")
-        
 
+def dns_check(spf_rec, dkim_rec, dmarc_rec):
+    spf_done = dkim_done = dmarc_done = False
+    response = dns.resolver.query("practicalcode.net", "TXT")
+    for rdata in response:
+        for txt in rdata.strings:
+            if ("v=spf1" in txt):
+                spf_done = True
+            elif ("v=DKIM1" in txt):
+                dkim_done = True
+            elif ("v=DMARC1" in txt):
+                dmarc_done = True
+            if (spf_done and dkim_done and dmarc_done):
+                break
+    if (not spf_done):
+        print("SPF not detected...")
+        print("Add the following to your TXT record")
+        print(spf_rec)
+    if (not dkim_done):
+        print("openDKIM not detected...")
+        print("Add the following to your TXT record")
+        print(dkim_rec)
+    if (not dmarc_done):
+        print("openDMARC not detected...")
+        print("Add the following to your TXT record")
+        print(dmarc_rec)
+        
 check_OS()
 
 cache = apt.Cache()
@@ -160,17 +192,23 @@ configure_firewall()
 integrate_dmarc_dkim()
 os.system("systemctl restart postfix")
 
+spf_rec = dns_recommendation_spf(domain_name, ip)
+dkim_rec = "[You've already installed OpenDKIM, make sure you've copied the public key from 'default.txt' onto your DNS]"
+dmarc_rec = ""
+
 if (not check_installed_package(cache, "opendkim")):
     check_installed_package(cache, "opendkim-tools")
-    dns_recommendation_spf(domain_name, ip)
     generate_dkim_key(domain_name)
     configure_dkim()
     configure_signtable(domain_name)
     configure_keytable(domain_name)
     configure_internalhosts(domain_name, ip)
-    dns_recommendation_dkim(domain_name)
+    dkim_rec = dns_recommendation_dkim(domain_name)
 
 if (not check_installed_package(cache, "opendmarc")):
-    dns_recommendation_dmarc(domain_name)
+    dmarc_rec = dns_recommendation_dmarc(domain_name)
     configure_dmarc(domain_name)
     configure_ignorehosts(ip)
+
+check_installed_package(cache, "python-dnspython")
+dns_check(spf_rec, dkim_rec, dmarc_rec)
